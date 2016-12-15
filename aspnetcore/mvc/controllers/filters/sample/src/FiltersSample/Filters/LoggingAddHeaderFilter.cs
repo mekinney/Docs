@@ -24,11 +24,8 @@ namespace FiltersSample.Filters
 
         public void OnResultExecuted(ResultExecutedContext context)
         {
-            var headerName = "OnResultExecuted";
-            context.HttpContext.Response.Headers.Add(
-                headerName, new string[] { "ResultExecutedSuccessfully" });
-            _logger.LogInformation($"Header added: {headerName}");
-
+            // Can't add to headers because response has already begun.
+            _logger.LogInformation("OnResultExecuted");
         }
     }
 }
