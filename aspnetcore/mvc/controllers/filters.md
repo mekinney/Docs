@@ -263,15 +263,17 @@ You can override the built-in `ResultFilterAttribute` to create result filters. 
 
 Filters work like [middleware](../../fundamentals/middleware.md), but the filter pipeline is part of MVC, which means that filters have access to MVC context and constructs. For instance, a filter can easily detect whether model validation on a request has generated errors. 
 
-If you want to use a middleware component in the filter pipeline, you can do that in ASP.NET Core 1.1.  For example, you might have a middleware component that you want to run only for certain controllers or actions.
+In ASP.NET Core 1.1, you can use middleware in the filter pipeline. You might want to do that if you have a middleware component that needs access to MVC route data, or one that should run only for certain controllers or actions.
 
 To use middleware as a filter, create a type with a `Configure` method that specifies the middleware that you want to inject into the filter pipeline. Here's an example that uses the localization middleware to establish the current culture for a request:
 
 [!code-csharp[Main](./filters/sample/src/FiltersSample/Filters/LocalizationPipeline.cs?name=snippet_MiddlewareFilter&highlight=3,20)]
 
-Then apply that middleware to a controller or action or globally by using the `MiddlewareFilterAttribute`:
+You can then use the `MiddlewareFilterAttribute` to run the middleware for a selected controller or action or globally:
 
 [!code-csharp[Main](./filters/sample/src/FiltersSample/Controllers/HomeController.cs?name=snippet_MiddlewareFilter&highlight=2)]
+
+Middleware filters run at the same stage of the filter pipeline as Resource filters, before and after model binding and the rest of the pipeline.
 
 ## Next actions
 
