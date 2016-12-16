@@ -16,7 +16,7 @@ uid: mvc/controllers/filters
 
 By [Steve Smith](http://ardalis.com) and [Tom Dykstra](https://github.com/tdykstra/) 
 
-*Filters* in ASP.NET MVC allow you to run code before or after certain stages in the request processing pipeline. Some common uses for filters are authorization (preventing access to resources a user isn't authorized for), ensuring that all requests use HTTPS, caching (short-circuiting the request pipeline to return a cached response), and error handling.
+*Filters* in ASP.NET MVC allow you to run code before or after certain stages in the request processing pipeline. Built-in filters handle tasks such as authorization (preventing access to resources a user isn't authorized for), ensuring that all requests use HTTPS, and response caching (short-circuiting the request pipeline to return a cached response). You can create custom filters for work specific to your application, such as error handling.
 
 [View or download sample from GitHub](https://github.com/aspnet/Docs/tree/master/aspnetcore/mvc/controllers/filters/sample).
 
