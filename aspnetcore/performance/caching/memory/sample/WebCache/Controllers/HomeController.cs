@@ -1,126 +1,133 @@
 ﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
-using System.Threading;
 using Microsoft.Extensions.Primitives;
-using System.Threading.Tasks;
+using WebCache.Models;
 
 #region snippet_ctor
 public class HomeController : Controller
-{   
-    private IMemoryCache _memoryCache;
+{
+    private IMemoryCache _cache;
 
     public HomeController(IMemoryCache memoryCache)
     {
-        _memoryCache = memoryCache;
+        _cache = memoryCache;
     }
     #endregion
 
     #region snippet1
     public IActionResult Index()
     {
-        DateTime cachedVal;
+        WebCacheEntry cacheEntry;
 
         // Look for cache key.
-        if (!_memoryCache.TryGetValue(CacheKey.Time, out cachedVal))
+        if (!_cache.TryGetValue(CacheKey.EntryKey, out cacheEntry))
         {
             // Key not in cache, so get data.
-            cachedVal = DateTime.Now;
-
-            // Set cache options.
-            var cacheOptions = new MemoryCacheEntryOptions()
+            cacheEntry = new WebCacheEntry
             {
-                // Cache a short time for easy testing.
-                SlidingExpiration = TimeSpan.FromSeconds(3),
+                CachedTime = DateTime.Now
             };
 
+            // Set cache options.
+            var cacheEntryOptions = new MemoryCacheEntryOptions()
+                // Longest possible time to keep in cache.
+                .SetAbsoluteExpiration(TimeSpan.FromSeconds(6))
+                // Keep in cache for this time, reset time if accessed.
+                .SetSlidingExpiration(TimeSpan.FromSeconds(3))
+                // Pin to cache.
+                .SetPriority(CacheItemPriority.NeverRemove);
+
             // Save data in cache.
-            _memoryCache.Set(CacheKey.Time, cachedVal, cacheOptions);
+            _cache.Set(CacheKey.EntryKey, cacheEntry, cacheEntryOptions);
         }
 
-        return View(cachedVal);
+        return View(cacheEntry);
     }
     #endregion
 
     #region snippet_gct
-    public IActionResult GetCachedTime()
+    public IActionResult IndexGet()
     {
-        var cachedVal = _memoryCache.Get<DateTime>(CacheKey.Time);
-        return View("Index", cachedVal);
+        var cacheEntry = _cache.Get<WebCacheEntry>(CacheKey.EntryKey);
+        return View("Index", cacheEntry);
     }
     #endregion
 
     #region snippet2
-    public IActionResult Index2()
+    public IActionResult IndexGetOrCreate()
     {
-        DateTime cachedVal = _memoryCache.GetOrCreate<DateTime>(CacheKey.Time, entry =>
+        var cacheEntry = _cache.GetOrCreate(CacheKey.EntryKey, entry =>
         {
             entry.SlidingExpiration = TimeSpan.FromSeconds(3);
-            return DateTime.Now;
+            return new WebCacheEntry
+            {
+                CachedTime = DateTime.Now
+            };
         });
 
-        return View("Index", cachedVal);
+        return View("Index", cacheEntry);
     }
 
-    public async Task<IActionResult> Index3()
+    public async Task<IActionResult> IndexGetOrCreateAsync()
     {
-        DateTime cachedVal = await
-            _memoryCache.GetOrCreateAsync<DateTime>(CacheKey.Time, entry =>
+        var cacheEntry = await
+            _cache.GetOrCreateAsync(CacheKey.EntryKey, entry =>
         {
             entry.SlidingExpiration = TimeSpan.FromSeconds(3);
-            return Task.FromResult<DateTime>(DateTime.Now);
+            return Task.FromResult(new WebCacheEntry
+            {
+                CachedTime = DateTime.Now
+            });
         });
 
-        return View("Index", cachedVal);
+        return View("Index", cacheEntry);
     }
     #endregion
 
     public IActionResult Remove()
     {
-        _memoryCache.Remove(CacheKey.Time);
+        _cache.Remove(CacheKey.EntryKey);
 
         return View("Index");
     }
 
     #region snippet_et
-    public IActionResult EvictionTime()
+    public IActionResult CreateCallbackEntry()
     {
-        _memoryCache.Set<DateTime>(CacheKey.MS,
-            DateTime.Now,
-            GetMemCacheOptions(6, 2, CacheItemPriority.NeverRemove, AfterEvicted));
-
-        // Don't use previous message.
-        _memoryCache.Remove(CacheKey.EvictMsg1);
-
-        return RedirectToAction("CheckEvictionTime");
-    }
-
-    private MemoryCacheEntryOptions GetMemCacheOptions(int absExpire, int slideExpire,
-      CacheItemPriority cachePriority, PostEvictionDelegate postEvictDelegate)
-    {
-        return new MemoryCacheEntryOptions()
+        var cacheEntryOptions = new MemoryCacheEntryOptions()
             // Longest possible time to keep in cache.
-            .SetAbsoluteExpiration(TimeSpan.FromSeconds(absExpire))
-            // Keep in cache for this time, reset time if accessed.
-            .SetSlidingExpiration(TimeSpan.FromSeconds(slideExpire))
-            // Pin to cache.
-            .SetPriority(cachePriority)
-            .RegisterPostEvictionCallback(postEvictDelegate, state: this);
+            .SetAbsoluteExpiration(TimeSpan.FromSeconds(3))
+            // Add eviction callback
+            .RegisterPostEvictionCallback(callback: EvictionCallback, state: this);
+
+        var cacheEntry = new WebCacheEntry
+        {
+            CachedTime = DateTime.Now
+        };
+
+        _cache.Set(CacheKey.CallbackKey, cacheEntry, cacheEntryOptions);
+
+        return View("Index", cacheEntry);
     }
 
-    // Show key value and why key was evicted.
-    private static void AfterEvicted(object key, object value,
+    public IActionResult GetCallbackEntry()
+    {
+        return View("Index", _cache.Get(CacheKey.CallbackKey));
+    }
+
+    // If the entry is evicted, add it back and display a message.
+    private static void EvictionCallback(object key, object value,
         EvictionReason reason, object state)
     {
-        var em = $"key: {key}, Value: {value}, Reason: {reason}";
-        ((HomeController)state)._memoryCache.Set<string>(CacheKey.EvictMsg1, em);
-    }
+        var evictedEntry = (WebCacheEntry)value;
+        evictedEntry.Message = $"Entry was evicted. Reason: {reason}.";
 
-    public IActionResult CheckEvictionTime()
-    {
-        ViewData["Message"] = _memoryCache.Get<string>(CacheKey.EvictMsg1);
-
-        return View(_memoryCache.Get<DateTime>(CacheKey.MS));
+        ((HomeController)state)._cache.Set(
+            CacheKey.CallbackKey,
+            evictedEntry);
     }
     #endregion
 
@@ -129,17 +136,17 @@ public class HomeController : Controller
     public IActionResult EvictDependency()
     {
         // Clear out eviction message, and key from previous run (if any).
-        _memoryCache.Remove(CacheKey.EvictMsg2);
+        _cache.Remove(CacheKey.EvictMsg2);
         CancellationTokenSource cts2 = new CancellationTokenSource();
-        _memoryCache.Set<CancellationTokenSource>(CacheKey.CancelTokenSource2, cts2);
+        _cache.Set<CancellationTokenSource>(CacheKey.CancelTokenSource2, cts2);
 
-        using (var entry = _memoryCache.CreateEntry(CacheKey.MS2))
+        using (var entry = _cache.CreateEntry(CacheKey.ParentKey))
         {
             // expire this entry if the dependant entry expires.
             entry.Value = DateTime.Now.TimeOfDay.Milliseconds.ToString();
             entry.RegisterPostEvictionCallback(AfterEvicted2, this);
 
-            _memoryCache.Set(CacheKey.MS3,
+            _cache.Set(CacheKey.ChildKey,
                 DateTime.Now.AddMilliseconds(4).TimeOfDay.Milliseconds.ToString(),
                 new CancellationChangeToken(cts2.Token));
         }
@@ -149,14 +156,14 @@ public class HomeController : Controller
 
     public IActionResult CheckEvictDependency(int? id)
     {
-        ViewData["CachedMS2"] = _memoryCache.Get<string>(CacheKey.MS2);
-        ViewData["CachedMS3"] = _memoryCache.Get<string>(CacheKey.MS3);
-        ViewData["MessageCED"] = _memoryCache.Get<string>(CacheKey.EvictMsg2);
+        ViewData["CachedMS2"] = _cache.Get<string>(CacheKey.ParentKey);
+        ViewData["CachedMS3"] = _cache.Get<string>(CacheKey.ChildKey);
+        ViewData["MessageCED"] = _cache.Get<string>(CacheKey.EvictMsg2);
 
         if (id > 0)
         {
             CancellationTokenSource cts2 =
-                _memoryCache.Get<CancellationTokenSource>(CacheKey.CancelTokenSource2);
+                _cache.Get<CancellationTokenSource>(CacheKey.CancelTokenSource2);
             cts2.Cancel();
         }
 
@@ -168,22 +175,22 @@ public class HomeController : Controller
                                       EvictionReason reason, object state)
     {
         var em = $"key: {key}, Value: {value}, Reason: {reason}";
-        ((HomeController)state)._memoryCache.Set<string>(CacheKey.EvictMsg2, em);
+        ((HomeController)state)._cache.Set<string>(CacheKey.EvictMsg2, em);
     }
-     
+
 
     public IActionResult CheckCancel(int? id = 0)
     {
         if (id > 0)
         {
             CancellationTokenSource cts =
-               _memoryCache.Get<CancellationTokenSource>(CacheKey.CancelTokenSource);
+               _cache.Get<CancellationTokenSource>(CacheKey.CancelTokenSource);
             cts.CancelAfter(100);
             // Cancel immediately with cts.Cancel();
         }
 
-        ViewData["CachedTime"] = _memoryCache.Get<string>(CacheKey.Ticks);
-        ViewData["Message"] =  _memoryCache.Get<string>(CacheKey.CancelMsg); ;
+        ViewData["CachedTime"] = _cache.Get<string>(CacheKey.Ticks);
+        ViewData["Message"] =  _cache.Get<string>(CacheKey.CancelMsg); ;
 
         return View();
     }
@@ -191,19 +198,19 @@ public class HomeController : Controller
     {
         var cachedVal = DateTime.Now.Second.ToString();
         CancellationTokenSource cts = new CancellationTokenSource();
-        _memoryCache.Set<CancellationTokenSource>(CacheKey.CancelTokenSource, cts);
+        _cache.Set<CancellationTokenSource>(CacheKey.CancelTokenSource, cts);
 
         // Don't use previous message.
-        _memoryCache.Remove(CacheKey.CancelMsg);
+        _cache.Remove(CacheKey.CancelMsg);
 
-        _memoryCache.Set(CacheKey.Ticks, cachedVal,
+        _cache.Set(CacheKey.Ticks, cachedVal,
             new MemoryCacheEntryOptions()
             .AddExpirationToken(new CancellationChangeToken(cts.Token))
             .RegisterPostEvictionCallback(
                 (key, value, reason, substate) =>
                 {
-                    var cm = $"'{key}':'{value}' was evicted because: {reason}"; 
-                    _memoryCache.Set<string>(CacheKey.CancelMsg, cm);
+                    var cm = $"'{key}':'{value}' was evicted because: {reason}";
+                    _cache.Set<string>(CacheKey.CancelMsg, cm);
                 }
             ));
 
